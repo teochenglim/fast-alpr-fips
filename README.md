@@ -7,8 +7,8 @@ Running [fast-alpr](https://github.com/ankandrew/fast-alpr) in containers on a R
 **Pull the image:**
 
 ```bash
-# Debian 12 (Python 3.11) — default
-docker pull ghcr.io/teochenglim/fast-alpr-fips:latest
+# Debian 12 (Python 3.11)
+docker pull ghcr.io/teochenglim/fast-alpr-fips:latest-ubuntu2204
 
 # Debian 13 (Python 3.12)
 docker pull ghcr.io/teochenglim/fast-alpr-fips:latest-ubuntu2404
@@ -16,7 +16,7 @@ docker pull ghcr.io/teochenglim/fast-alpr-fips:latest-ubuntu2404
 
 **Download the FIPS-safe opencv wheel** (no Docker needed):
 
-Go to [Actions → build-wheel artifacts](https://github.com/teochenglim/fast-alpr-fips/actions) and download the artifact for your Python version, then:
+Download from [**Releases → wheels-latest**](https://github.com/teochenglim/fast-alpr-fips/releases/tag/wheels-latest) — pick the `.whl` for your Python version, then:
 
 ```bash
 pip install opencv_python_headless-*.whl
@@ -90,11 +90,11 @@ pip install opencv_python_headless-*.whl
 
 | Tag | Builder | Python | Final base |
 |---|---|---|---|
-| [`latest`](https://github.com/teochenglim/fast-alpr-fips/pkgs/container/fast-alpr-fips) | ubuntu:22.04 | 3.11 | distroless/base-debian12 |
+| [`latest-ubuntu2204`](https://github.com/teochenglim/fast-alpr-fips/pkgs/container/fast-alpr-fips) | ubuntu:22.04 | 3.11 | distroless/base-debian12 |
 | [`latest-ubuntu2404`](https://github.com/teochenglim/fast-alpr-fips/pkgs/container/fast-alpr-fips) | ubuntu:24.04 | 3.12 | distroless/base-debian13 |
 
 ```bash
-docker pull ghcr.io/teochenglim/fast-alpr-fips:latest
+docker pull ghcr.io/teochenglim/fast-alpr-fips:latest-ubuntu2204
 docker pull ghcr.io/teochenglim/fast-alpr-fips:latest-ubuntu2404
 ```
 
@@ -220,14 +220,14 @@ The first image build takes ~40 minutes (opencv compilation). Subsequent runs us
 ```yaml
 spec:
   containers:
-    - image: ghcr.io/teochenglim/fast-alpr-fips:latest
+    - image: ghcr.io/teochenglim/fast-alpr-fips:latest-ubuntu2204
       command: ["/opt/venv/bin/python3", "/app/main.py"]
 ```
 
 Or extend the image with your application code:
 
 ```dockerfile
-FROM ghcr.io/teochenglim/fast-alpr-fips:latest
+FROM ghcr.io/teochenglim/fast-alpr-fips:latest-ubuntu2204
 COPY main.py /app/main.py
 CMD ["/app/main.py"]
 ```
