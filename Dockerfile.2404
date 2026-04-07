@@ -51,14 +51,32 @@ RUN python3.12 -m venv --copies /opt/venv \
 # Must match the OS of the final stage (distroless/base-debian13 = trixie)
 # so that fips.so is ABI-compatible with libcrypto.so.3 at runtime.
 #
+# Same approach as bookworm: fips.so is not shipped in the standard openssl
+# package, so we build it from the matching GitHub tag.
+#
 # fipsmodule.cnf contains an HMAC of fips.so — both must be copied together
 # to the final stage so the integrity check passes.
 # =============================================================================
 FROM debian:trixie-slim AS fips-config
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        openssl \
+        openssl build-essential git ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+
+# Detect installed OpenSSL version → clone matching tag → build only fips.so
+RUN OPENSSL_VERSION=$(openssl version | awk '{print $2}') \
+    && echo "Building OpenSSL fips.so for version: ${OPENSSL_VERSION}" \
+    && git clone --depth 1 \
+        --branch openssl-${OPENSSL_VERSION} \
+        https://github.com/openssl/openssl.git /tmp/openssl-src \
+    && cd /tmp/openssl-src \
+    && ./Configure enable-fips \
+        --prefix=/usr \
+        --openssldir=/usr/lib/ssl \
+        --libdir=lib/x86_64-linux-gnu \
+    && make -j$(nproc) \
+    && make install_fips \
+    && rm -rf /tmp/openssl-src
 
 RUN openssl fipsinstall \
         -module /usr/lib/x86_64-linux-gnu/ossl-modules/fips.so \

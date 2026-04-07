@@ -84,7 +84,7 @@ Each image is a **3-stage build** to keep the final image minimal and secure.
 │ Stage 1: builder (ubuntu:22.04 / ubuntu:24.04)                  │
 │                                                                 │
 │  • Installs Python + build tools                                │
-│  • git clone opencv-python → git fetch PR #1190                 │
+│  • git clone opencv-python → git fetch PR #1190.                │
 │  • pip wheel . --no-build-isolation   (ENABLE_HEADLESS=1)       │
 │  • python -m venv --copies /opt/venv                            │
 │    └── pip install <fips-safe wheel> fast-alpr                  │
@@ -98,6 +98,13 @@ Each image is a **3-stage build** to keep the final image minimal and secure.
 │  Must match the final stage OS so fips.so is ABI-compatible     │
 │  with libcrypto.so.3 at runtime.                                │
 │                                                                 │
+│  fips.so is NOT shipped in Debian's standard openssl package —  │
+│  it must be compiled from source matching the installed version │
+│                                                                 │
+│  • Detects installed OpenSSL version at build time              │
+│  • Clones matching tag from github.com/openssl/openssl          │
+│  • ./Configure enable-fips && make -j$(nproc) && make           │
+│      install_fips   (only the FIPS module, not full OpenSSL)    │
 │  • openssl fipsinstall -module fips.so -out fipsmodule.cnf      │
 │    fipsmodule.cnf = HMAC of fips.so (integrity check at load)   │
 │  • Writes openssl-fips.cnf activating FIPS + base providers     │
@@ -107,7 +114,7 @@ Each image is a **3-stage build** to keep the final image minimal and secure.
                            ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │ Stage 3: final (distroless/base-debian12 / distroless/base-     │
-│                 debian13)                                        │
+│                 debian13)                                       │
 │                                                                 │
 │  No shell. No package manager. Minimal attack surface.          │
 │                                                                 │
@@ -117,7 +124,7 @@ Each image is a **3-stage build** to keep the final image minimal and secure.
 │  • libpython3.x.so    ← not in distroless/base                  │
 │  • fips.so            ← matched to fipsmodule.cnf               │
 │  • fipsmodule.cnf     ┘ (must come from same fips-config stage) │
-│  • openssl-fips.cnf   ← sets OPENSSL_CONF at runtime           │
+│  • openssl-fips.cnf   ← sets OPENSSL_CONF at runtime            │
 │                                                                 │
 │  ENV OPENSSL_CONF=/etc/ssl/openssl-fips.cnf                     │
 │  ENV OPENSSL_MODULES=/usr/lib/x86_64-linux-gnu/ossl-modules     │
@@ -127,6 +134,25 @@ Each image is a **3-stage build** to keep the final image minimal and secure.
 ### Why `--copies` in venv
 
 `python -m venv /opt/venv` creates symlinks by default (e.g. `python3 → /usr/bin/python3.11`). In distroless there is no `/usr/bin/python3.11` to resolve against. `--copies` writes real binaries so `COPY --from=builder /opt/venv` is fully self-contained.
+
+### Why fips.so must be built from source
+
+Debian's standard `openssl` package does **not** ship `fips.so`. The FIPS provider is only available in `openssl-provider-fips`, which exists in Debian sid/trixie but not in bookworm. Ubuntu similarly gates it behind Ubuntu Pro.
+
+The solution is to build only the FIPS module from the OpenSSL GitHub source, matching the version already installed by apt:
+
+```bash
+OPENSSL_VERSION=$(openssl version | awk '{print $2}')
+git clone --depth 1 --branch openssl-${OPENSSL_VERSION} \
+    https://github.com/openssl/openssl.git
+./Configure enable-fips --prefix=/usr \
+    --openssldir=/usr/lib/ssl \
+    --libdir=lib/x86_64-linux-gnu
+make -j$(nproc)
+make install_fips   # installs only fips.so, not a full OpenSSL replacement
+```
+
+`make install_fips` installs only the FIPS provider module — it does not replace the system OpenSSL binaries or libraries. The version is detected dynamically at Docker build time so it always tracks the OS package.
 
 ### Why the FIPS stage must match distroless
 
@@ -190,3 +216,4 @@ CMD ["/app/main.py"]
 - [opencv-python PR #1191](https://github.com/opencv/opencv-python/pull/1191) — related
 - [GoogleContainerTools/distroless](https://github.com/GoogleContainerTools/distroless)
 - [OpenSSL FIPS module documentation](https://www.openssl.org/docs/man3.0/man7/fips_module.html)
+- [Add FIPS module to OpenSSL on Debian 12 Bookworm](https://aikchar.dev/blog/add-fips-module-to-openssl-3011-on-debian-12-bookworm.html) — build-from-source approach

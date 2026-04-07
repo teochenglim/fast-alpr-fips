@@ -53,14 +53,34 @@ RUN python3.11 -m venv --copies /opt/venv \
 # Must match the OS of the final stage (distroless/base-debian12 = bookworm)
 # so that fips.so is ABI-compatible with libcrypto.so.3 at runtime.
 #
+# Debian bookworm's standard openssl package does NOT ship fips.so — it must
+# be compiled from source. We detect the installed OpenSSL version at build
+# time and clone the exact matching tag from GitHub, then build only the FIPS
+# module with `make install_fips`.
+#
 # fipsmodule.cnf contains an HMAC of fips.so — both must be copied together
 # to the final stage so the integrity check passes.
 # =============================================================================
 FROM debian:bookworm-slim AS fips-config
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        openssl \
+        openssl build-essential git ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+
+# Detect installed OpenSSL version → clone matching tag → build only fips.so
+RUN OPENSSL_VERSION=$(openssl version | awk '{print $2}') \
+    && echo "Building OpenSSL fips.so for version: ${OPENSSL_VERSION}" \
+    && git clone --depth 1 \
+        --branch openssl-${OPENSSL_VERSION} \
+        https://github.com/openssl/openssl.git /tmp/openssl-src \
+    && cd /tmp/openssl-src \
+    && ./Configure enable-fips \
+        --prefix=/usr \
+        --openssldir=/usr/lib/ssl \
+        --libdir=lib/x86_64-linux-gnu \
+    && make -j$(nproc) \
+    && make install_fips \
+    && rm -rf /tmp/openssl-src
 
 RUN openssl fipsinstall \
         -module /usr/lib/x86_64-linux-gnu/ossl-modules/fips.so \
