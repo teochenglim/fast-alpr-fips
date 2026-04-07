@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   packages: write
   attestations: write
   id-token: write
@@ -125,3 +125,51 @@ jobs:
           platforms: linux/amd64
           cache-from: type=gha,scope=${{ matrix.variant }}
           cache-to: type=gha,mode=max,scope=${{ matrix.variant }}
+
+  # ---------------------------------------------------------------------------
+  # publish-wheels — runs after all wheel builds succeed on main
+  #
+  # Creates/updates a permanent "wheels-latest" GitHub Release so the wheels
+  # are visible and downloadable from the repo homepage Releases section.
+  # ---------------------------------------------------------------------------
+  publish-wheels:
+    name: Publish wheels to GitHub Releases
+    runs-on: ubuntu-22.04
+    needs: [build-wheel]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - name: Download all wheel artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: opencv-headless-fips-safe-*
+          path: /tmp/wheels
+          merge-multiple: true
+
+      - name: Show wheels
+        run: ls -lh /tmp/wheels/
+
+      - name: Create or update wheels-latest release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: wheels-latest
+          name: "FIPS-safe opencv-python-headless wheels (latest)"
+          prerelease: false
+          make_latest: true
+          files: /tmp/wheels/*.whl
+          body: |
+            FIPS-safe `opencv-python-headless` wheels built from [opencv-python PR #1190](https://github.com/opencv/opencv-python/pull/1190).
+
+            Built on `ubuntu-22.04` with system OpenSSL — no bundled OpenSSL 1.1.1w, no FATAL FIPS SELFTEST FAILURE.
+
+            | File | Python |
+            |---|---|
+            | `opencv_python_headless-*-cp311-*-linux_x86_64.whl` | 3.11 |
+            | `opencv_python_headless-*-cp312-*-linux_x86_64.whl` | 3.12 |
+            | `opencv_python_headless-*-cp313-*-linux_x86_64.whl` | 3.13 |
+
+            **Install:**
+            ```bash
+            pip install opencv_python_headless-*-cp311-*-linux_x86_64.whl
+            ```
+
+            Built from commit ${{ github.sha }}.
