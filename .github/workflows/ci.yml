@@ -36,12 +36,30 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      # Resolve the exact commit SHA of PR #1190 to use as cache key.
+      # The wheel only needs rebuilding when the PR branch changes.
+      - name: Get PR #1190 commit SHA
+        id: pr-sha
+        run: |
+          SHA=$(git ls-remote https://github.com/opencv/opencv-python.git refs/pull/1190/head | cut -f1)
+          echo "sha=${SHA}" >> $GITHUB_OUTPUT
+          echo "PR #1190 HEAD: ${SHA}"
+
+      - name: Cache wheel
+        id: cache-wheel
+        uses: actions/cache@v4
+        with:
+          path: /tmp/wheels
+          key: opencv-headless-py${{ matrix.python-version }}-pr1190-${{ steps.pr-sha.outputs.sha }}
+
       - name: Install build dependencies
+        if: steps.cache-wheel.outputs.cache-hit != 'true'
         run: |
           pip install --no-cache-dir \
             scikit-build numpy setuptools packaging pip wheel
 
       - name: Clone opencv-python and fetch PR #1190
+        if: steps.cache-wheel.outputs.cache-hit != 'true'
         run: |
           git clone --depth 100 https://github.com/opencv/opencv-python.git /tmp/opencv-python
           cd /tmp/opencv-python
@@ -49,6 +67,7 @@ jobs:
           git checkout pr-1190
 
       - name: Build headless wheel
+        if: steps.cache-wheel.outputs.cache-hit != 'true'
         env:
           ENABLE_HEADLESS: "1"
           CMAKE_BUILD_PARALLEL_LEVEL: "2"
@@ -84,7 +103,7 @@ jobs:
         include:
           - variant: ubuntu2204
             dockerfile: Dockerfile.2204
-            tag-suffix: ""
+            tag-suffix: "-ubuntu2204"
           - variant: ubuntu2404
             dockerfile: Dockerfile.2404
             tag-suffix: "-ubuntu2404"
