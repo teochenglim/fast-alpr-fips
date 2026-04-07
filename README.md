@@ -234,6 +234,14 @@ CMD ["/app/main.py"]
 
 ---
 
+## Buy Me a Coffee
+
+If you find this project helpful or interesting, you can [buy me a coffee](https://buymeacoffee.com/teochenglim) to keep me motivated!
+
+Your support is greatly appreciated 🙏
+
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-donate-yellow?style=for-the-badge&logo=buy-me-a-coffee)](https://buymeacoffee.com/teochenglim)
+
 ## References
 
 - [fast-alpr](https://github.com/ankandrew/fast-alpr)
