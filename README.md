@@ -2,6 +2,32 @@
 
 Running [fast-alpr](https://github.com/ankandrew/fast-alpr) in containers on a RHEL 9.7 FIPS-hardened Kubernetes cluster, with a distroless final image.
 
+## Quick Start
+
+**Pull the image:**
+
+```bash
+# Debian 12 (Python 3.11) — default
+docker pull ghcr.io/teochenglim/fast-alpr-fips:latest
+
+# Debian 13 (Python 3.12)
+docker pull ghcr.io/teochenglim/fast-alpr-fips:latest-ubuntu2404
+```
+
+**Download the FIPS-safe opencv wheel** (no Docker needed):
+
+Go to [Actions → build-wheel artifacts](https://github.com/teochenglim/fast-alpr-fips/actions) and download the artifact for your Python version, then:
+
+```bash
+pip install opencv_python_headless-*.whl
+```
+
+| Artifact name | Python |
+|---|---|
+| `opencv-headless-fips-safe-py3.11-linux-x86_64` | 3.11 |
+| `opencv-headless-fips-safe-py3.12-linux-x86_64` | 3.12 |
+| `opencv-headless-fips-safe-py3.13-linux-x86_64` | 3.13 |
+
 ---
 
 ## The Problem
@@ -50,11 +76,11 @@ Built on `ubuntu-22.04` with system OpenSSL, for three Python versions. Useful f
 
 | Artifact | Python | Platform |
 |---|---|---|
-| `opencv-headless-fips-safe-py3.11-linux-x86_64` | 3.11 | linux/amd64 |
-| `opencv-headless-fips-safe-py3.12-linux-x86_64` | 3.12 | linux/amd64 |
-| `opencv-headless-fips-safe-py3.13-linux-x86_64` | 3.13 | linux/amd64 |
+| [`opencv-headless-fips-safe-py3.11-linux-x86_64`](https://github.com/teochenglim/fast-alpr-fips/actions) | 3.11 | linux/amd64 |
+| [`opencv-headless-fips-safe-py3.12-linux-x86_64`](https://github.com/teochenglim/fast-alpr-fips/actions) | 3.12 | linux/amd64 |
+| [`opencv-headless-fips-safe-py3.13-linux-x86_64`](https://github.com/teochenglim/fast-alpr-fips/actions) | 3.13 | linux/amd64 |
 
-Download from the [Actions tab](../../actions), then:
+Download from the [Actions tab](https://github.com/teochenglim/fast-alpr-fips/actions), open a completed run, scroll to **Artifacts**.
 
 ```bash
 pip install opencv_python_headless-*.whl
@@ -62,15 +88,14 @@ pip install opencv_python_headless-*.whl
 
 ### 2. Container Images (GHCR)
 
-Two variants pushed to `ghcr.io/<owner>/<repo>`:
-
 | Tag | Builder | Python | Final base |
 |---|---|---|---|
-| `latest` / `main` | ubuntu:22.04 | 3.11 | distroless/base-debian12 |
-| `latest-ubuntu2404` / `main-ubuntu2404` | ubuntu:24.04 | 3.12 | distroless/base-debian13 |
+| [`latest`](https://github.com/teochenglim/fast-alpr-fips/pkgs/container/fast-alpr-fips) | ubuntu:22.04 | 3.11 | distroless/base-debian12 |
+| [`latest-ubuntu2404`](https://github.com/teochenglim/fast-alpr-fips/pkgs/container/fast-alpr-fips) | ubuntu:24.04 | 3.12 | distroless/base-debian13 |
 
 ```bash
-docker pull ghcr.io/<owner>/<repo>:latest
+docker pull ghcr.io/teochenglim/fast-alpr-fips:latest
+docker pull ghcr.io/teochenglim/fast-alpr-fips:latest-ubuntu2404
 ```
 
 ---
@@ -195,14 +220,14 @@ The first image build takes ~40 minutes (opencv compilation). Subsequent runs us
 ```yaml
 spec:
   containers:
-    - image: ghcr.io/<owner>/<repo>:latest
+    - image: ghcr.io/teochenglim/fast-alpr-fips:latest
       command: ["/opt/venv/bin/python3", "/app/main.py"]
 ```
 
 Or extend the image with your application code:
 
 ```dockerfile
-FROM ghcr.io/<owner>/<repo>:latest
+FROM ghcr.io/teochenglim/fast-alpr-fips:latest
 COPY main.py /app/main.py
 CMD ["/app/main.py"]
 ```

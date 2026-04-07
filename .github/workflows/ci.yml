@@ -9,6 +9,8 @@ on:
 permissions:
   contents: read
   packages: write
+  attestations: write
+  id-token: write
 
 jobs:
   # ---------------------------------------------------------------------------
@@ -109,6 +111,8 @@ jobs:
             type=sha,prefix=sha-,suffix=${{ matrix.tag-suffix }},format=short
             type=ref,event=branch,suffix=${{ matrix.tag-suffix }}
             type=raw,value=latest${{ matrix.tag-suffix }},enable=${{ github.ref == format('refs/heads/{0}', 'main') }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
 
       - name: Build and push
         uses: docker/build-push-action@v6
