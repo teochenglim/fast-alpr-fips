@@ -24,10 +24,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
-RUN curl -sS https://bootstrap.pypa.io/get-pip.py | python3.12
+# Create venv first — avoids PEP 668 (Ubuntu 24.04 blocks pip outside venv)
+# --copies: real binaries instead of symlinks, required for distroless COPY
+RUN python3.12 -m venv --copies /opt/venv
 
 # Build-time deps matching pyproject.toml scikit-build backend
-RUN python3.12 -m pip install --no-cache-dir \
+RUN /opt/venv/bin/pip install --no-cache-dir \
         scikit-build numpy setuptools packaging pip wheel
 
 # Fetch opencv-python at PR #1190 (commit a068215:
@@ -39,10 +41,9 @@ RUN git clone --depth 100 https://github.com/opencv/opencv-python.git \
     && git checkout pr-1190
 
 RUN cd /build/opencv-python \
-    && python3.12 -m pip wheel . --no-build-isolation -w /wheels
+    && /opt/venv/bin/pip wheel . --no-build-isolation -w /wheels
 
-RUN python3.12 -m venv --copies /opt/venv \
-    && /opt/venv/bin/pip install --no-cache-dir /wheels/opencv_python_headless*.whl \
+RUN /opt/venv/bin/pip install --no-cache-dir /wheels/opencv_python_headless*.whl \
     && /opt/venv/bin/pip install --no-cache-dir fast-alpr
 
 # =============================================================================
