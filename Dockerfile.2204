@@ -1,0 +1,109 @@
+# =============================================================================
+# Stage 1: builder — ubuntu:22.04 + Python 3.11 (deadsnakes)
+#
+# Builds opencv-python-headless from PR #1190, which removes the custom
+# OpenSSL 1.1.1w bundled into the wheel and uses the system OpenSSL instead.
+# On a FIPS-enforced host the system OpenSSL is FIPS-certified, so no more
+# "FATAL FIPS SELFTEST FAILURE" when importing cv2.
+#
+# --copies venv: real binaries (no symlinks) so COPY --from works in distroless.
+# =============================================================================
+FROM ubuntu:22.04 AS builder
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    ENABLE_HEADLESS=1 \
+    CMAKE_BUILD_PARALLEL_LEVEL=4
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        software-properties-common \
+    && add-apt-repository ppa:deadsnakes/ppa \
+    && apt-get update && apt-get install -y --no-install-recommends \
+        python3.11 python3.11-dev python3.11-venv \
+        git curl ca-certificates \
+        cmake ninja-build \
+        gcc g++ \
+        libglib2.0-dev \
+        libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN curl -sS https://bootstrap.pypa.io/get-pip.py | python3.11
+
+# Build-time deps matching pyproject.toml scikit-build backend
+RUN python3.11 -m pip install --no-cache-dir \
+        scikit-build numpy setuptools packaging pip wheel
+
+# Fetch opencv-python at PR #1190 (commit a068215:
+# "manylinux: avoid bundling OpenSSL to fix FIPS import crash")
+WORKDIR /build
+RUN git clone --depth 100 https://github.com/opencv/opencv-python.git \
+    && cd opencv-python \
+    && git fetch origin pull/1190/head:pr-1190 \
+    && git checkout pr-1190
+
+RUN cd /build/opencv-python \
+    && python3.11 -m pip wheel . --no-build-isolation -w /wheels
+
+RUN python3.11 -m venv --copies /opt/venv \
+    && /opt/venv/bin/pip install --no-cache-dir /wheels/opencv_python_headless*.whl \
+    && /opt/venv/bin/pip install --no-cache-dir fast-alpr
+
+# =============================================================================
+# Stage 2: fips-config — debian:bookworm-slim
+#
+# Must match the OS of the final stage (distroless/base-debian12 = bookworm)
+# so that fips.so is ABI-compatible with libcrypto.so.3 at runtime.
+#
+# fipsmodule.cnf contains an HMAC of fips.so — both must be copied together
+# to the final stage so the integrity check passes.
+# =============================================================================
+FROM debian:bookworm-slim AS fips-config
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        openssl \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN openssl fipsinstall \
+        -module /usr/lib/x86_64-linux-gnu/ossl-modules/fips.so \
+        -out /etc/ssl/fipsmodule.cnf
+
+RUN cat > /etc/ssl/openssl-fips.cnf <<'EOF'
+config_diagnostics = 1
+openssl_conf = openssl_init
+
+.include /etc/ssl/fipsmodule.cnf
+
+[openssl_init]
+providers = provider_sect
+
+[provider_sect]
+fips = fips_sect
+base = base_sect
+
+[base_sect]
+activate = 1
+EOF
+
+# =============================================================================
+# Stage 3: final — distroless/base-debian12
+#
+# Copies /opt/venv (--copies = self-contained), libpython3.11.so, and the
+# matched fips.so + fipsmodule.cnf from the bookworm fips-config stage.
+# libssl3/libcrypto are already present in distroless/base-debian12.
+# =============================================================================
+FROM gcr.io/distroless/base-debian12
+
+COPY --from=builder /opt/venv                                        /opt/venv
+COPY --from=builder /usr/lib/python3.11                              /usr/lib/python3.11
+COPY --from=builder /usr/lib/x86_64-linux-gnu/libpython3.11.so.1.0  /usr/lib/x86_64-linux-gnu/libpython3.11.so.1.0
+
+# Matched pair — fips.so and fipsmodule.cnf must come from the same stage
+COPY --from=fips-config /usr/lib/x86_64-linux-gnu/ossl-modules/fips.so  /usr/lib/x86_64-linux-gnu/ossl-modules/fips.so
+COPY --from=fips-config /etc/ssl/fipsmodule.cnf                          /etc/ssl/fipsmodule.cnf
+COPY --from=fips-config /etc/ssl/openssl-fips.cnf                        /etc/ssl/openssl-fips.cnf
+
+ENV PATH="/opt/venv/bin:$PATH" \
+    PYTHONPATH="/opt/venv/lib/python3.11/site-packages" \
+    OPENSSL_CONF=/etc/ssl/openssl-fips.cnf \
+    OPENSSL_MODULES=/usr/lib/x86_64-linux-gnu/ossl-modules
+
+ENTRYPOINT ["/opt/venv/bin/python3"]

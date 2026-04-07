@@ -1,0 +1,123 @@
+name: Build opencv wheel & GHCR image
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # build-wheel — matrix over Python versions, all run in parallel
+  #
+  # Builds opencv-python-headless from PR #1190 on ubuntu-22.04 so the wheel
+  # links against the system OpenSSL 3.x instead of the bundled OpenSSL 1.1.1w
+  # that triggers FIPS selftest failures.
+  #
+  # Artifacts are downloadable from the Actions run summary (90-day retention).
+  # Install: pip install opencv_python_headless-*.whl
+  # ---------------------------------------------------------------------------
+  build-wheel:
+    name: Wheel / Python ${{ matrix.python-version }}
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install build dependencies
+        run: |
+          pip install --no-cache-dir \
+            scikit-build numpy setuptools packaging pip wheel
+
+      - name: Clone opencv-python and fetch PR #1190
+        run: |
+          git clone --depth 100 https://github.com/opencv/opencv-python.git /tmp/opencv-python
+          cd /tmp/opencv-python
+          git fetch origin pull/1190/head:pr-1190
+          git checkout pr-1190
+
+      - name: Build headless wheel
+        env:
+          ENABLE_HEADLESS: "1"
+          CMAKE_BUILD_PARALLEL_LEVEL: "2"
+        run: |
+          cd /tmp/opencv-python
+          pip wheel . --no-build-isolation -w /tmp/wheels
+
+      - name: Show wheel
+        run: ls -lh /tmp/wheels/
+
+      - name: Upload wheel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: opencv-headless-fips-safe-py${{ matrix.python-version }}-linux-x86_64
+          path: /tmp/wheels/opencv_python_headless*.whl
+          if-no-files-found: error
+          retention-days: 90
+
+  # ---------------------------------------------------------------------------
+  # build-image — matrix over ubuntu versions, runs in parallel with build-wheel
+  #
+  # ubuntu-2204 → Dockerfile.2204 → distroless/base-debian12 (Python 3.11)
+  # ubuntu-2404 → Dockerfile.2404 → distroless/base-debian13 (Python 3.12)
+  #
+  # Images pushed to: ghcr.io/<owner>/<repo>:<variant>-<sha>
+  # ---------------------------------------------------------------------------
+  build-image:
+    name: Image / ${{ matrix.variant }}
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: ubuntu2204
+            dockerfile: Dockerfile.2204
+            tag-suffix: ""
+          - variant: ubuntu2404
+            dockerfile: Dockerfile.2404
+            tag-suffix: "-ubuntu2404"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=sha,prefix=sha-,suffix=${{ matrix.tag-suffix }},format=short
+            type=ref,event=branch,suffix=${{ matrix.tag-suffix }}
+            type=raw,value=latest${{ matrix.tag-suffix }},enable=${{ github.ref == format('refs/heads/{0}', 'main') }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64
+          cache-from: type=gha,scope=${{ matrix.variant }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.variant }}
